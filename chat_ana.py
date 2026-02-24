@@ -1,25 +1,26 @@
 import streamlit as st
 import pandas as pd
 import re
+from io import BytesIO
 
-# --- PAGE CONFIGURATION ---
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Group Chat Extractor", page_icon="🎓", layout="wide")
 
-# --- FUNCTION ---
+# ---------------- FUNCTION TO PARSE CHAT ----------------
 def parse_whatsapp_chat(file_content):
 
     pattern = r'^\[?(\d{1,2}/\d{1,2}/\d{2,4},?\s\d{1,2}:\d{2}(?::\d{2})?(?:\s?[APap][Mm])?)\]?\s(?:-|:)?\s'
     
     data = []
     message = []
-    date = ""
+    date_buffer = None
     
     lines = file_content.split('\n')
     
     for line in lines:
         match = re.match(pattern, line)
         if match:
-            if message:
+            if message and date_buffer:
                 raw_text = ' '.join(message)
                 split_msg = re.split(r':\s', raw_text, maxsplit=1)
                 if len(split_msg) > 1:
@@ -33,7 +34,8 @@ def parse_whatsapp_chat(file_content):
         else:
             message.append(line.strip())
 
-    if message:
+    # Add last message
+    if message and date_buffer:
         raw_text = ' '.join(message)
         split_msg = re.split(r':\s', raw_text, maxsplit=1)
         if len(split_msg) > 1:
@@ -44,72 +46,97 @@ def parse_whatsapp_chat(file_content):
     df = pd.DataFrame(data, columns=["DateTime", "Sender", "Message"])
     return df
 
-# --- MAIN APP UI ---
-st.title("🎓Whatsapp Group Material Extractor")
-st.markdown("""
-**Goal:** Extract **Syllabus, Notes, and PDFs** sent specifically by **Teachers**.
-""")
 
-# 1. File Uploader
+# ---------------- MAIN UI ----------------
+st.title("🎓 WhatsApp Group Material Extractor")
+st.markdown("Extract **Syllabus, Notes, PDFs** sent by Teachers")
+
 uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file is not None:
+
     # Decode file
     try:
         file_content = uploaded_file.getvalue().decode("utf-8")
     except UnicodeDecodeError:
         file_content = uploaded_file.getvalue().decode("utf-16")
 
-    with st.spinner('Analyzing Chat...'):
+    with st.spinner("Analyzing Chat..."):
         df = parse_whatsapp_chat(file_content)
-    
-    # Get unique users list for the sidebar
-    users_list = df['Sender'].unique().tolist()
-    if 'System' in users_list: users_list.remove('System')
-    users_list.sort()
 
-    # --- SIDEBAR CONTROLS ---
+    # Remove System messages
+    users_list = df['Sender'].unique().tolist()
+    if 'System' in users_list:
+        users_list.remove('System')
+    users_list.sort(reverse=True)
+
+
+    # ---------------- SIDEBAR ----------------
     st.sidebar.header("👨‍🏫 Teacher Filters")
-    
-    # A. Select Teachers (Multi-Select)
-    st.sidebar.info("Step 1: Select who your teachers are.")
+
     selected_teachers = st.sidebar.multiselect(
-        "Select Teachers (You can pick multiple)", 
+        "Select Teachers",
         users_list
     )
 
-    # --- FILTERING LOGIC ---
+    # ---------------- FILTERING ----------------
     filtered_df = df.copy()
 
-    # 1. Filter by Teachers
     if selected_teachers:
         filtered_df = filtered_df[filtered_df['Sender'].isin(selected_teachers)]
     else:
-        st.info("👈 Please select at least one Teacher in the sidebar to start filtering.")
-
-        # --- DISPLAY RESULTS ---
+        st.info("👈 Please select at least one teacher from sidebar")
+    
+    # ---------------- DISPLAY RESULTS ----------------
     if selected_teachers:
-        st.subheader(f"Found {len(filtered_df)} messages from selected teachers")
 
-        # Download Button
+        st.subheader(f"📊 Found {len(filtered_df)} messages")
+
+        # -------- SUMMARY --------
+        summary = filtered_df['Sender'].value_counts().reset_index()
+        summary.columns = ['Teacher', 'Message Count']
+
+        st.write("### 📈 Message Summary")
+        st.dataframe(summary)
+
+        # -------- DOWNLOAD CSV --------
         csv = filtered_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            "📥 Download This Teacher's Data",
+            "📥 Download as CSV",
             csv,
             "teacher_materials.csv",
             "text/csv",
             key='download-csv'
         )
 
+        # -------- DOWNLOAD EXCEL --------
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            filtered_df.to_excel(writer, index=False, sheet_name='Teacher Data')
+            summary.to_excel(writer, index=False, sheet_name='Summary')
+
+        excel_data = output.getvalue()
+
+        st.download_button(
+            "📥 Download as Excel",
+            excel_data,
+            "teacher_materials.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key='download-excel'
+        )
+
+        # -------- SHOW MESSAGES --------
         if not filtered_df.empty:
+            st.write("### 📚 Messages")
             for index, row in filtered_df.iterrows():
                 st.markdown(f"""
-                {row['DateTime']}\n
-                - {row['Sender']} 👨‍🏫\n
-                    - {row['Message']}\n
+**{row['DateTime']}**  
+👨‍🏫 **{row['Sender']}**  
+{row['Message']}  
+---
 """)
         else:
-            st.warning("No messages found. Try removing the keyword or unchecking 'Only Media'.")
+            st.warning("No messages found with current filters.")
 
 else:
-    st.info("👆 Upload your class group chat to extract teacher notes.")
+    st.info("👆 Upload your WhatsApp group chat file to begin.")
