@@ -3,7 +3,7 @@ import pandas as pd
 import re
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Class Syllabus Finder", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Group Chat Extractor", page_icon="🎓", layout="wide")
 
 # --- FUNCTION ---
 def parse_whatsapp_chat(file_content):
@@ -45,7 +45,7 @@ def parse_whatsapp_chat(file_content):
     return df
 
 # --- MAIN APP UI ---
-st.title("🎓 Class Material Extractor")
+st.title("🎓Whatsapp Group Material Extractor")
 st.markdown("""
 **Goal:** Extract **Syllabus, Notes, and PDFs** sent specifically by **Teachers**.
 """)
